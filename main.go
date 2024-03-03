@@ -387,8 +387,6 @@ func main() {
 		}
 	}()
 	go RebootRequestListen(diceManager)
-	go UpdateRequestListen(diceManager)
-	go UpdateCheckRequestListen(diceManager)
 
 	// 强制清理机制
 	go (func() {

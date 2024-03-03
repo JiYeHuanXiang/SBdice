@@ -1201,23 +1201,6 @@ func (s *IMSession) commandSolve(ctx *MsgContext, msg *Message, cmdArgs *CmdArgs
 				return false
 			}
 
-			if item.AllowDelegate {
-				// 允许代骰时，发一句话
-				cur := -1
-				for index, i := range cmdArgs.At {
-					if i.UserID == ctx.EndPoint.UserID {
-						continue
-					} else if strings.HasPrefix(ctx.EndPoint.UserID, "OpenQQ:") {
-						// 特殊处理 OpenQQ频道
-						uid := strings.TrimPrefix(i.UserID, "OpenQQCH:")
-						diceId := strings.TrimPrefix(ctx.EndPoint.UserID, "OpenQQ:")
-						if uid == diceId {
-							continue
-						}
-					}
-					cur = index
-				}
-
 				if cur != -1 {
 					if ctx.Dice.PlayerNameWrapEnable {
 						ctx.DelegateText = fmt.Sprintf("由<%s>代骰:\n", ctx.Player.Name)

@@ -788,7 +788,6 @@ func (d *Dice) registerCoreCommands() {
 		Name:          "master",
 		ShortHelp:     masterListHelp,
 		Help:          "骰主指令:\n" + masterListHelp,
-		AllowDelegate: true,
 		Solve: func(ctx *MsgContext, msg *Message, cmdArgs *CmdArgs) CmdExecuteResult {
 			var subCmd string
 
@@ -1384,7 +1383,6 @@ func (d *Dice) registerCoreCommands() {
 		Name:          "roll",
 		ShortHelp:     helpRoll,
 		Help:          "骰点(和r相同，但支持代骰):\n" + helpRollX,
-		AllowDelegate: true,
 		Solve: func(ctx *MsgContext, msg *Message, cmdArgs *CmdArgs) CmdExecuteResult {
 			mctx := GetCtxProxyFirst(ctx, cmdArgs)
 			return cmdRoll.Solve(mctx, msg, cmdArgs)

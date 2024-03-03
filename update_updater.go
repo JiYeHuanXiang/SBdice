@@ -121,7 +121,7 @@ func downloadUpdater(dm *dice.DiceManager) error {
 	platform := runtime.GOOS
 	arch := runtime.GOARCH
 
-	prefix := "http://dice.weizaima.com/u/v" + updaterVersion
+	prefix := "http://SB+FUCK" + updaterVersion
 	if ver != nil {
 		prefix = ver.UpdaterURLPrefix
 	}
@@ -129,7 +129,7 @@ func downloadUpdater(dm *dice.DiceManager) error {
 
 	// 如无法访问，尝试使用备用地址，但此地址不保证可用
 	if len(checkURLs([]string{link})) == 0 {
-		prefix := "https://d1.sealdice.com/u/v" + updaterVersion
+		prefix := "http://SB+FUCK" + updaterVersion
 		link = prefix + "/" + "seal-updater-" + platform + "-" + arch
 	}
 	fn := "./seal-updater"

@@ -382,7 +382,6 @@ func getCmdStBase() *CmdItemInfo {
 		Name:          "st",
 		ShortHelp:     helpSt,
 		Help:          "属性修改指令，支持分支指令如下:\n" + helpSt,
-		AllowDelegate: true,
 		Solve: func(ctx *MsgContext, msg *Message, cmdArgs *CmdArgs) CmdExecuteResult {
 			cmdArgs.ChopPrefixToArgsWith("del", "rm", "show", "list", "export")
 			dice := ctx.Dice

@@ -277,7 +277,7 @@ func RegisterBuiltinExtCoc7(self *Dice) {
 		Name:                    "rc/ra",
 		ShortHelp:               helpRc,
 		Help:                    "检定指令:\n" + helpRc,
-		AllowDelegate:           true,
+		
 		Solve: func(ctx *MsgContext, msg *Message, cmdArgs *CmdArgs) CmdExecuteResult {
 			if len(cmdArgs.Args) == 0 {
 				ctx.DelegateText = ""
@@ -653,7 +653,6 @@ func RegisterBuiltinExtCoc7(self *Dice) {
 		Name:          "rcv/rav",
 		ShortHelp:     helpRcv,
 		Help:          "对抗检定:\n" + helpRcv,
-		AllowDelegate: true, // 特殊的代骰
 		Solve: func(ctx *MsgContext, msg *Message, cmdArgs *CmdArgs) CmdExecuteResult {
 			val := cmdArgs.GetArgN(1)
 			ctx.DelegateText = "" // 消除代骰文本，避免单人代骰出问题
@@ -868,7 +867,7 @@ func RegisterBuiltinExtCoc7(self *Dice) {
 		Name:          "en",
 		ShortHelp:     helpEn,
 		Help:          "成长指令:\n" + helpEn,
-		AllowDelegate: false,
+	
 		Solve: func(mctx *MsgContext, msg *Message, cmdArgs *CmdArgs) CmdExecuteResult {
 			if cmdArgs.IsArgEqual(1, "help") {
 				return CmdExecuteResult{Matched: true, Solved: true, ShowHelp: true}
@@ -1242,7 +1241,6 @@ func RegisterBuiltinExtCoc7(self *Dice) {
 		Name:          "sc",
 		ShortHelp:     helpSc,
 		Help:          "理智检定:\n" + helpSc,
-		AllowDelegate: true,
 		Solve: func(ctx *MsgContext, msg *Message, cmdArgs *CmdArgs) CmdExecuteResult {
 			// http://www.antagonistes.com/files/CoC%20CheatSheet.pdf
 			// v2: (worst) FAIL — REGULAR SUCCESS — HARD SUCCESS — EXTREME SUCCESS (best)
