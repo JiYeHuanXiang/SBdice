@@ -114,7 +114,7 @@ func onReady() {
 	mOpen.SetIcon(icon.Data)
 
 	go func() {
-		_ = beeep.Notify("SealDice", "我藏在托盘区域了，点我的小图标可以快速打开UI", "assets/information.png")
+		_ = beeep.Notify("SBdice", "你是没骰子用了还是脑子不好使，用这坨屎？", "assets/information.png")
 	}()
 
 	// 自启动检查

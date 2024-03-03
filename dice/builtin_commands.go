@@ -395,8 +395,7 @@ func (d *Dice) registerCoreCommands() {
 		Solve: func(ctx *MsgContext, msg *Message, cmdArgs *CmdArgs) CmdExecuteResult {
 			arg := cmdArgs.GetArgN(1)
 			if arg == "" {
-				text := "海豹核心 " + VERSION + "\n"
-				text += "官网: sealdice.com" + "\n"
+				text := "傻逼海豹 " + VERSION + "\n"
 				text += "海豹群: 524364253" + "\n"
 				text += DiceFormatTmpl(ctx, "核心:骰子帮助文本_附加说明")
 				ReplyToSender(ctx, msg, text)
