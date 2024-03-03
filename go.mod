@@ -27,7 +27,7 @@ require (
 	github.com/kardianos/service v1.2.2
 	github.com/labstack/echo/v4 v4.11.4
 	github.com/lonelyevil/kook v0.0.31
-	github.com/lonelyevil/kook/log_adapter/plog v0.0.31
+	github.com/lonelyevil/kook/log_adapter/plog v0.0.34
 	github.com/lxn/win v0.0.0-20210218163916-a377121e959e
 	github.com/monaco-io/request v1.0.16
 	github.com/mroth/weightedrand v1.0.0
@@ -48,6 +48,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.3.2
+	github.com/Masterminds/semver/v3 v3.2.1
 	github.com/Szzrain/DingTalk-go v0.0.8-alpha
 	github.com/fyrchik/go-shlex v0.0.0-20210215145004-cd7f49bfd959
 	github.com/glebarez/go-sqlite v1.22.0
@@ -78,7 +79,6 @@ require (
 )
 
 require (
-	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/RoaringBitmap/roaring v1.2.3 // indirect
 	github.com/bits-and-blooms/bitset v1.2.2 // indirect
 	github.com/bits-and-blooms/bloom/v3 v3.2.0 // indirect
