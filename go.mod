@@ -39,7 +39,7 @@ require (
 	github.com/tidwall/buntdb v1.3.0
 	github.com/xuri/excelize/v2 v2.8.0
 	go.etcd.io/bbolt v1.3.8
-	go.uber.org/zap v1.26.0
+	go.uber.org/zap v1.27.0
 	golang.org/x/sys v0.17.0
 	golang.org/x/text v0.14.0
 	gopkg.in/elazarl/goproxy.v1 v1.0.0-20180725130230-947c36da3153
@@ -48,6 +48,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.3.2
+	github.com/Masterminds/semver/v3 v3.2.1
 	github.com/Szzrain/DingTalk-go v0.0.8-alpha
 	github.com/fyrchik/go-shlex v0.0.0-20210215145004-cd7f49bfd959
 	github.com/glebarez/go-sqlite v1.22.0
@@ -78,7 +79,6 @@ require (
 )
 
 require (
-	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/RoaringBitmap/roaring v1.2.3 // indirect
 	github.com/bits-and-blooms/bitset v1.2.2 // indirect
 	github.com/bits-and-blooms/bloom/v3 v3.2.0 // indirect
