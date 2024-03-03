@@ -48,13 +48,14 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.3.2
+	github.com/Masterminds/semver/v3 v3.2.1
 	github.com/Szzrain/DingTalk-go v0.0.8-alpha
 	github.com/fyrchik/go-shlex v0.0.0-20210215145004-cd7f49bfd959
 	github.com/glebarez/go-sqlite v1.22.0
 	github.com/go-creed/sat v1.0.3
 	github.com/golang-module/carbon v1.7.3
 	github.com/gorilla/websocket v1.5.1
-	github.com/grokify/html-strip-tags-go v0.0.1
+	github.com/grokify/html-strip-tags-go v0.1.0
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/matoous/go-nanoid/v2 v2.0.0
 	github.com/mattn/go-sqlite3 v1.14.22
@@ -78,7 +79,6 @@ require (
 )
 
 require (
-	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/RoaringBitmap/roaring v1.2.3 // indirect
 	github.com/bits-and-blooms/bitset v1.2.2 // indirect
 	github.com/bits-and-blooms/bloom/v3 v3.2.0 // indirect
