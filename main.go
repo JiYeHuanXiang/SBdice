@@ -1,11 +1,11 @@
 package main
 
+// _ "net/http/pprof"
 import (
-	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"mime"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,46 +17,73 @@ import (
 	"syscall"
 	"time"
 
-	// _ "net/http/pprof"
-
+	"github.com/gofrs/flock"
 	"github.com/jessevdk/go-flags"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"sealdice-core/api"
 	"sealdice-core/dice"
 	"sealdice-core/dice/model"
 	"sealdice-core/migrate"
 	"sealdice-core/static"
+	"sealdice-core/utils/crypto"
+	log "sealdice-core/utils/kratos"
+	"sealdice-core/utils/oschecker"
+	"sealdice-core/utils/paniclog"
 )
 
-/**
+/*
+*
 二进制目录结构:
 data/configs
 data/extensions
 data/logs
-
 extensions/
 */
 
-func cleanUpCreate(diceManager *dice.DiceManager) func() {
+var sealLock = flock.New("sealdice-lock.lock")
+
+func cleanupCreate(diceManager *dice.DiceManager) func() {
 	return func() {
-		logger.Info("程序即将退出，进行清理……")
+		log.Info("程序即将退出，进行清理……")
 		err := recover()
 		if err != nil {
 			showWindow()
-			logger.Errorf("异常: %v\n堆栈: %v", err, string(debug.Stack()))
-			exec.Command("pause") // windows专属
+			log.Errorf("异常: %v\n堆栈: %v", err, string(debug.Stack()))
+			// 顺便修正一下上面这个，应该是木落忘了。
+			if runtime.GOOS == "windows" {
+				exec.Command("pause") // windows专属
+			}
+		}
+		err = sealLock.Unlock()
+		if err != nil {
+			log.Errorf("文件锁归还出现异常 %v", err)
+		}
+
+		if !diceManager.CleanupFlag.CompareAndSwap(0, 1) {
+			// 尝试更新cleanup标记，如果已经为1则退出
+			return
 		}
 
 		for _, i := range diceManager.Dice {
 			if i.IsAlreadyLoadConfig {
-				i.BanList.SaveChanged(i)
+				i.Config.BanList.SaveChanged(i)
 				i.Save(true)
+				i.AttrsManager.Stop()
 				for _, j := range i.ExtList {
 					if j.Storage != nil {
-						_ = j.Storage.Close()
+						// 关闭
+						err := j.StorageClose()
+						if err != nil {
+							showWindow()
+							log.Errorf("异常: %v\n堆栈: %v", err, string(debug.Stack()))
+							// 木落没有加该检查 补充上
+							if runtime.GOOS == "windows" {
+								exec.Command("pause") // windows专属
+							}
+						}
 					}
 				}
 				i.IsAlreadyLoadConfig = false
@@ -72,7 +99,11 @@ func cleanUpCreate(diceManager *dice.DiceManager) func() {
 				dbData := d.DBData
 				if dbData != nil {
 					d.DBData = nil
-					_ = dbData.Close()
+					db, err := dbData.DB()
+					if err != nil {
+						return
+					}
+					_ = db.Close()
 				}
 			})()
 
@@ -83,7 +114,11 @@ func cleanUpCreate(diceManager *dice.DiceManager) func() {
 				dbLogs := d.DBLogs
 				if dbLogs != nil {
 					d.DBLogs = nil
-					_ = dbLogs.Close()
+					db, err := dbLogs.DB()
+					if err != nil {
+						return
+					}
+					_ = db.Close()
 				}
 			})()
 
@@ -95,7 +130,11 @@ func cleanUpCreate(diceManager *dice.DiceManager) func() {
 				if cm != nil && cm.DB != nil {
 					dbCensor := cm.DB
 					cm.DB = nil
-					_ = dbCensor.Close()
+					db, err := dbCensor.DB()
+					if err != nil {
+						return
+					}
+					_ = db.Close()
 				}
 			})()
 		}
@@ -104,7 +143,7 @@ func cleanUpCreate(diceManager *dice.DiceManager) func() {
 		for _, i := range diceManager.Dice {
 			if i.ImSession != nil && i.ImSession.EndPoints != nil {
 				for _, j := range i.ImSession.EndPoints {
-					dice.GoCqhttpServeProcessKill(i, j)
+					dice.BuiltinQQServeProcessKill(i, j)
 				}
 			}
 		}
@@ -160,8 +199,8 @@ func main() {
 		ShowConsole            bool   `long:"show-console" description:"Windows上显示控制台界面"`
 		HideUIWhenBoot         bool   `long:"hide-ui" description:"启动时不弹出UI"`
 		ServiceUser            string `long:"service-user" description:"用于启动服务的用户"`
-		ServiceName            string `long:"service-name" description:"自定义服务名，默认为sealdice"`
-		MultiInstanceOnWindows bool   `short:"m" long:"multi-instance" description:"允许在Windows上运行多个海豹"`
+		ServiceName            string `long:"service-name" description:"自定义服务名，默认为SBdice"`
+		MultiInstanceOnWindows bool   `short:"m" long:"multi-instance" description:"允许在Windows上运行多个"`
 		Address                string `long:"address" description:"将UI的http服务地址改为此值，例: 0.0.0.0:3211"`
 		DoUpdateWin            bool   `long:"do-update-win" description:"windows自动升级用，不要在任何情况下主动调用"`
 		DoUpdateOthers         bool   `long:"do-update-others" description:"linux/mac自动升级用，不要在任何情况下主动调用"`
@@ -171,15 +210,41 @@ func main() {
 		ShowEnv                bool   `long:"show-env" description:"显示环境变量"`
 		VacuumDB               bool   `long:"vacuum" description:"对数据库进行整理, 使其收缩到最小尺寸"`
 		UpdateTest             bool   `long:"update-test" description:"更新测试"`
+		LogLevel               int8   `long:"log-level" description:"设置日志等级" default:"0" choice:"-1" choice:"0" choice:"1" choice:"2" choice:"3" choice:"4" choice:"5"`
+		ContainerMode          bool   `long:"container-mode" description:"容器模式，该模式下禁用内置客户端"`
 	}
 
 	_, err := flags.ParseArgs(&opts, os.Args)
 	if err != nil {
 		return
 	}
+	// 提前到最开始初始化所有日志
+	// 1. 初始化全局Kartos日志
+	log.InitZapWithKartosLog(zapcore.Level(opts.LogLevel))
+	// 2. 初始化全局panic捕获日志
+	paniclog.InitPanicLog()
+	// 3. 提示日志打印
+	log.Info("运行日志开始记录，出现故障时可查看 data/main.log 与 data/panic.log 获取更多信息")
+	// 初始化文件加锁系统
 
+	locked, err := sealLock.TryLock()
+	// 如果有错误，或者未能取到锁
+	if err != nil || !locked {
+		// 打日志的时候防止打出nil
+		if err == nil {
+			err = errors.New("海岛正在运行中")
+		}
+		log.Errorf("获取锁文件失败，原因为: %v", err)
+		showMsgBox("获取锁文件失败", "为避免数据损坏，拒绝继续启动。请检查是否启动多个程序！")
+		return
+	}
+	judge, osr := oschecker.OldVersionCheck()
+	// 预留收集信息的接口，如果有需要可以考虑从这里拿数据。不从这里做提示的原因是Windows和Linux的展示方式不同。
+	if judge {
+		log.Info(osr)
+	}
 	if opts.Version {
-		fmt.Println(dice.VERSION)
+		fmt.Fprintln(os.Stdout, dice.VERSION.String())
 		return
 	}
 	if opts.DBCheck {
@@ -192,32 +257,36 @@ func main() {
 	}
 	if opts.ShowEnv {
 		for i, e := range os.Environ() {
-			println(i, e)
+			fmt.Fprintln(os.Stdout, i, e)
 		}
 		return
 	}
 	deleteOldWrongFile()
 
 	if opts.Delay != 0 {
-		fmt.Println("延迟启动", opts.Delay, "秒")
+		log.Infof("延迟启动 %d 秒", opts.Delay)
 		time.Sleep(time.Duration(opts.Delay) * time.Second)
 	}
 
 	if runtime.GOOS == "android" {
 		fixTimezone()
 	}
-	dnsHack()
 
 	_ = os.MkdirAll("./data", 0o755)
-	MainLoggerInit("./data/main.log", true)
 
 	// 提早初始化是为了读取ServiceName
 	diceManager := &dice.DiceManager{}
+
+	if opts.ContainerMode {
+		log.Info("当前为容器模式，内置适配器与更新功能已被禁用")
+		diceManager.ContainerMode = true
+	}
+
 	diceManager.LoadDice()
 	diceManager.IsReady = true
 
 	if opts.Address != "" {
-		fmt.Println("由参数输入了服务地址:", opts.Address)
+		log.Infof("由参数输入了服务地址: %s", opts.Address)
 		diceManager.ServeAddress = opts.Address
 	}
 
@@ -227,7 +296,7 @@ func main() {
 			serviceName = diceManager.ServiceName
 		}
 		if serviceName == "" {
-			serviceName = "sealdice"
+			serviceName = "SBdice"
 		}
 		if serviceName != diceManager.ServiceName {
 			diceManager.ServiceName = serviceName
@@ -243,79 +312,8 @@ func main() {
 		return
 	}
 
-	if _, err1 := os.Stat("./auto_update.exe"); err1 == nil {
-		doNext := true
-		if filepath.Base(os.Args[0]) != "auto_update.exe" {
-			a := sha256Checksum("./auto_update.exe")
-			b := sha256Checksum(os.Args[0])
-			doNext = a != b
-		}
-		if doNext {
-			// 只有不同文件才进行校验
-			// windows平台旧版本到1.4.0流程
-			_ = os.WriteFile("./升级失败指引.txt", []byte("不管问题可以加企鹅群去骂：524364253 562897832"), 0o644)
-			logger.Warn("检测到 auto_update.exe，即将自动退出当前程序并进行升级")
-			logger.Warn("程序目录下会出现“升级日志.log”，这代表升级正在进行中，如果失败了请检查此文件。")
-
-			err := CheckUpdater(diceManager)
-			if err != nil {
-				logger.Error("升级程序检查失败: ", err.Error())
-			} else {
-				_ = os.Remove("./auto_update.exe")
-				// ui资源已经内置，删除旧的ui文件，这里有点风险，但是此时已经不考虑升级失败的情况
-				_ = os.RemoveAll("./frontend")
-				UpdateByFile(diceManager, nil, "./update/update.zip", true)
-			}
-			return
-		}
-	}
-
-	if _, err2 := os.Stat("./auto_update"); err2 == nil {
-		doNext := true
-		if filepath.Base(os.Args[0]) != "auto_update" {
-			a := sha256Checksum("./auto_update")
-			b := sha256Checksum(os.Args[0])
-			doNext = a != b
-		}
-
-		if doNext {
-			err := CheckUpdater(diceManager)
-			if err != nil {
-				logger.Error("升级程序检查失败: ", err.Error())
-			} else {
-				_ = os.Remove("./auto_update")
-				// ui资源已经内置，删除旧的ui文件，这里有点风险，但是此时已经不考虑升级失败的情况
-				_ = os.RemoveAll("./frontend")
-				UpdateByFile(diceManager, nil, "./update/update.tar.gz", true)
-			}
-			return
-		}
-	}
-	removeUpdateFiles()
-
-	if opts.UpdateTest {
-		err := CheckUpdater(diceManager)
-		if err != nil {
-			logger.Error("升级程序检查失败: ", err.Error())
-		} else {
-			UpdateByFile(diceManager, nil, "./xx.zip", true)
-		}
-	}
-
-	// 先临时放这里，后面再整理一下升级模块
-	diceManager.UpdateSealdiceByFile = func(packName string, log *zap.SugaredLogger) bool {
-		err := CheckUpdater(diceManager)
-		if err != nil {
-			logger.Error("升级程序检查失败: ", err.Error())
-			return false
-		} else {
-			return UpdateByFile(diceManager, log, packName, false)
-		}
-	}
-
 	cwd, _ := os.Getwd()
-	fmt.Printf("%s %s\n", dice.APPNAME, dice.VERSION)
-	fmt.Println("工作路径: ", cwd)
+	log.Info(dice.APPNAME, dice.VERSION.String(), "当前工作路径: ", cwd)
 
 	if strings.HasPrefix(cwd, os.TempDir()) {
 		// C:\Users\XXX\AppData\Local\Temp
@@ -330,34 +328,42 @@ func main() {
 		return err == nil && stat.IsDir()
 	}
 	if !checkFrontendExists() {
-		logger.Info("未检测到外置的UI资源文件，将使用内置资源启动UI")
+		log.Info("未检测到外置的UI资源文件，将使用内置资源启动UI")
 		useBuiltinUI = true
 	} else {
-		logger.Info("检测到外置的UI资源文件，将使用frontend_overwrite文件夹内的资源启动UI")
+		log.Info("检测到外置的UI资源文件，将使用frontend_overwrite文件夹内的资源启动UI")
 	}
 
 	// 删除遗留的shm和wal文件
-	if !model.DBCacheDelete() {
-		logger.Error("数据库缓存文件删除失败")
-		showMsgBox("数据库缓存文件删除失败", "为避免数据损坏，拒绝继续启动。请检查是否启动多份程序，或有其他程序正在使用数据库文件！")
-		return
-	}
+	//  if !model.DBCacheDelete() {
+	//	  log.Error("数据库缓存文件删除失败")
+	//	  showMsgBox("数据库缓存文件删除失败", "为避免数据损坏，拒绝继续启动。请检查是否启动多份程序，或有其他程序正在使用数据库文件！")
+	//	  return
+	//  }
 
 	// 尝试进行升级
 	migrate.TryMigrateToV12()
 	// 尝试修正log_items表的message字段类型
 	if migrateErr := migrate.LogItemFixDatatype(); migrateErr != nil {
-		logger.Errorf("修正log_items表时出错，%s", migrateErr.Error())
+		log.Fatalf("修正log_items表时出错，%s", migrateErr.Error())
 		return
 	}
 	// v131迁移历史设置项到自定义文案
 	if migrateErr := migrate.V131DeprecatedConfig2CustomText(); migrateErr != nil {
-		logger.Errorf("迁移历史设置项时出错，%s", migrateErr.Error())
+		log.Fatalf("迁移历史设置项时出错，%s", migrateErr.Error())
 		return
 	}
 	// v141重命名刷屏警告字段
 	if migrateErr := migrate.V141DeprecatedConfigRename(); migrateErr != nil {
-		logger.Errorf("迁移历史设置项时出错，%s", migrateErr.Error())
+		log.Fatalf("迁移历史设置项时出错，%s", migrateErr.Error())
+		return
+	}
+	// v144删除旧的帮助文档
+	if migrateErr := migrate.V144RemoveOldHelpdoc(); migrateErr != nil {
+		log.Fatalf("移除旧帮助文档时出错，%v", migrateErr)
+	}
+	// v150升级
+	if !migrate.V150Upgrade() {
 		return
 	}
 
@@ -367,7 +373,7 @@ func main() {
 
 	go dice.TryGetBackendURL()
 
-	cleanUp := cleanUpCreate(diceManager)
+	cleanUp := cleanupCreate(diceManager)
 	defer dice.CrashLog()
 	defer cleanUp()
 
@@ -387,6 +393,8 @@ func main() {
 		}
 	}()
 	go RebootRequestListen(diceManager)
+	go UpdateRequestListen(diceManager)
+	go UpdateCheckRequestListen(diceManager)
 
 	// 强制清理机制
 	go (func() {
@@ -400,7 +408,7 @@ func main() {
 	})()
 
 	if opts.Address != "" {
-		fmt.Println("由参数输入了服务地址:", opts.Address)
+		log.Infof("由参数输入了服务地址: %s", opts.Address)
 	}
 
 	for _, d := range diceManager.Dice {
@@ -417,7 +425,7 @@ func main() {
 	// err = nil
 	// err = http.ListenAndServe(":9090", nil)
 	// if err != nil {
-	// 	fmt.Printf("ListenAndServe: %s", err)
+	// 	fmt.Fprintf(os.Stdout, "ListenAndServe: %s", err)
 	// }
 
 	// darwin 的托盘菜单似乎需要在主线程启动才能工作，调整到这里
@@ -438,7 +446,7 @@ func removeUpdateFiles() {
 func diceServe(d *dice.Dice) {
 	defer dice.CrashLog()
 	if len(d.ImSession.EndPoints) == 0 {
-		d.Logger.Infof("未检测到任何帐号，请先到“帐号设置”进行添加")
+		log.Infof("未检测到任何帐号，请先到“帐号设置”进行添加")
 	}
 
 	d.UIEndpoint = new(dice.EndPointInfo)
@@ -448,6 +456,9 @@ func diceServe(d *dice.Dice) {
 	d.UIEndpoint.State = 1
 	d.UIEndpoint.UserID = "UI:1000"
 	d.UIEndpoint.Adapter = &dice.PlatformAdapterHTTP{Session: d.ImSession, EndPoint: d.UIEndpoint}
+	d.UIEndpoint.Session = d.ImSession
+
+	dice.TextMapCompatibleCheckAll(d)
 
 	for _, _conn := range d.ImSession.EndPoints {
 		if _conn.Enable {
@@ -462,20 +473,34 @@ func diceServe(d *dice.Dice) {
 					}
 					if conn.EndPointInfoBase.ProtocolType == "onebot" {
 						pa := conn.Adapter.(*dice.PlatformAdapterGocq)
-						dice.GoCqhttpServe(d, conn, dice.GoCqhttpLoginInfo{
-							Password:         pa.InPackGoCqhttpPassword,
-							Protocol:         pa.InPackGoCqhttpProtocol,
-							AppVersion:       pa.InPackGoCqhttpAppVersion,
-							IsAsyncRun:       true,
-							UseSignServer:    pa.UseSignServer,
-							SignServerConfig: pa.SignServerConfig,
-						})
+						if pa.BuiltinMode == "lagrange" || pa.BuiltinMode == "lagrange-gocq" {
+							dice.LagrangeServe(d, conn, dice.LagrangeLoginInfo{
+								IsAsyncRun: true,
+							})
+							return
+						} else {
+							dice.GoCqhttpServe(d, conn, dice.GoCqhttpLoginInfo{
+								Password:         pa.InPackGoCqhttpPassword,
+								Protocol:         pa.InPackGoCqhttpProtocol,
+								AppVersion:       pa.InPackGoCqhttpAppVersion,
+								IsAsyncRun:       true,
+								UseSignServer:    pa.UseSignServer,
+								SignServerConfig: pa.SignServerConfig,
+							})
+						}
 					}
 					if conn.EndPointInfoBase.ProtocolType == "red" {
 						dice.ServeRed(d, conn)
 					}
 					if conn.EndPointInfoBase.ProtocolType == "official" {
 						dice.ServerOfficialQQ(d, conn)
+					}
+					if conn.EndPointInfoBase.ProtocolType == "satori" {
+						dice.ServeSatori(d, conn)
+					}
+					if conn.EndPointInfoBase.ProtocolType == "LagrangeGo" {
+						// dice.ServeLagrangeGo(d, conn)
+						return
 					}
 					time.Sleep(10 * time.Second) // 稍作等待再连接
 					dice.ServeQQ(d, conn)
@@ -504,13 +529,13 @@ func diceServe(d *dice.Dice) {
 }
 
 func uiServe(dm *dice.DiceManager, hideUI bool, useBuiltin bool) {
-	logger.Info("即将启动webui")
+	log.Info("即将启动webui")
 	// Echo instance
 	e := echo.New()
 
-	// Middleware
-	// e.Use(middleware.Logger())
-	// e.Use(middleware.Recover())
+	// 为UI添加日志，以echo方式输出
+	echoHelper := log.GetWebLogger()
+	e.Use(log.EchoMiddleLogger(echoHelper))
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		Skipper:      middleware.DefaultSkipper,
 		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, "token"},
@@ -526,7 +551,7 @@ func uiServe(dm *dice.DiceManager, hideUI bool, useBuiltin bool) {
 		XSSProtection:         "1; mode=block",
 		ContentTypeNosniff:    "nosniff",
 		HSTSMaxAge:            3600,
-		ContentSecurityPolicy: "default-src 'self' 'unsafe-inline'; img-src 'self' data: *; style-src  'self' 'unsafe-inline' *; frame-src 'self' *;",
+		ContentSecurityPolicy: "default-src 'self' 'unsafe-inline'; img-src 'self' data: blob: *; style-src  'self' 'unsafe-inline' *; frame-src 'self' *;",
 		// XFrameOptions:         "ALLOW-FROM https://captcha.go-cqhttp.org/",
 	}))
 	// X-Content-Type-Options: nosniff
@@ -563,24 +588,6 @@ func uiServe(dm *dice.DiceManager, hideUI bool, useBuiltin bool) {
 //	}
 //	return false
 // }
-
-func dnsHack() {
-	var (
-		dnsResolverIP    = "114.114.114.114:53" // Google DNS resolver.
-		dnsResolverProto = "udp"                // Protocol to use for the DNS resolver
-	)
-	var dialer net.Dialer
-	net.DefaultResolver = &net.Resolver{
-		PreferGo: false,
-		Dial: func(context context.Context, _, _ string) (net.Conn, error) {
-			conn, err := dialer.DialContext(context, dnsResolverProto, dnsResolverIP)
-			if err != nil {
-				return nil, err
-			}
-			return conn, nil
-		},
-	}
-}
 
 func mimePatch() {
 	builtinMimeTypesLower := map[string]string{

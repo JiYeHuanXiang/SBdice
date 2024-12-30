@@ -25,6 +25,7 @@ import (
 
 	"sealdice-core/dice"
 	"sealdice-core/icon"
+	log "sealdice-core/utils/kratos"
 )
 
 func hideWindow() {
@@ -70,14 +71,14 @@ func TestRunning() bool {
 		return false
 	}
 
-	s1, _ := syscall.UTF16PtrFromString("SealDice 海豹已经在运作")
-	s2, _ := syscall.UTF16PtrFromString("如果你想在Windows上打开多个海豹，请点“确定”，或加参数-m启动。\n如果只是打开UI界面，请在任务栏右下角的系统托盘区域找到海豹图标并右键，点“取消")
+	s1, _ := syscall.UTF16PtrFromString("SBDice 已经在运作")
+	s2, _ := syscall.UTF16PtrFromString("如果你想在Windows上打开多个，请点“确定”，或加参数-m启动。)
 	ret := win.MessageBox(0, s2, s1, win.MB_YESNO|win.MB_ICONWARNING|win.MB_DEFBUTTON2)
 	return ret != win.IDYES
 }
 
 func PortExistsWarn() {
-	s1, _ := syscall.UTF16PtrFromString("SealDice 启动失败")
+	s1, _ := syscall.UTF16PtrFromString("SBDice 启动失败")
 	s2, _ := syscall.UTF16PtrFromString("端口已被占用，建议换用其他端口")
 	win.MessageBox(0, s2, s1, win.MB_OK)
 }
@@ -87,11 +88,11 @@ func getAutoStart() *autostart.App {
 	if err == nil {
 		pathName := filepath.Dir(exePath)
 		pathName = filepath.Base(pathName)
-		autostartName := fmt.Sprintf("SealDice_%s", pathName)
+		autostartName := fmt.Sprintf("SBDice_%s", pathName)
 
 		appStart := &autostart.App{
 			Name:        autostartName,
-			DisplayName: "海豹骰点核心 - 目录: " + pathName,
+			DisplayName: "海岛骰点核心 - 目录: " + pathName,
 			Exec:        []string{exePath, "-m --hide-ui"}, // 分开写会有问题
 		}
 		return appStart
@@ -102,19 +103,20 @@ func getAutoStart() *autostart.App {
 var systrayQuited bool = false
 
 func onReady() {
+	ver := dice.VERSION_MAIN + dice.VERSION_PRERELEASE
 	systray.SetIcon(icon.Data)
-	systray.SetTitle("海豹TRPG骰点核心")
-	systray.SetTooltip("海豹TRPG骰点核心")
+	systray.SetTitle("海岛核心")
+	systray.SetTooltip("海岛核心 " + ver)
 
 	mOpen := systray.AddMenuItem("打开界面", "开启WebUI")
-	mOpenExeDir := systray.AddMenuItem("打开海豹目录", "资源管理器访问程序所在目录")
+	mOpenExeDir := systray.AddMenuItem("打开目录", "资源管理器访问程序所在目录")
 	mShowHide := systray.AddMenuItemCheckbox("显示终端窗口", "显示终端窗口", false)
 	mAutoBoot := systray.AddMenuItemCheckbox("开机自启动", "开机自启动", false)
 	mQuit := systray.AddMenuItem("退出", "退出程序")
 	mOpen.SetIcon(icon.Data)
 
 	go func() {
-		_ = beeep.Notify("SBdice", "你是没骰子用了还是脑子不好使，用这坨屎？", "assets/information.png")
+		_ = beeep.Notify("SBdice", "我藏在托盘区域了，点我的小图标可以快速打开UI", "assets/information.png")
 	}()
 
 	// 自启动检查
@@ -143,26 +145,26 @@ func onReady() {
 		case <-mQuit.ClickedCh:
 			systray.Quit()
 			systrayQuited = true
-			cleanUpCreate(theDM)()
+			cleanupCreate(theDM)()
 			time.Sleep(3 * time.Second)
 			os.Exit(0)
 		case <-mAutoBoot.ClickedCh:
 			if mAutoBoot.Checked() {
 				err := getAutoStart().Disable()
 				if err != nil {
-					s1, _ := syscall.UTF16PtrFromString("SealDice 临时目录错误")
+					s1, _ := syscall.UTF16PtrFromString("SBDice 临时目录错误")
 					s2, _ := syscall.UTF16PtrFromString("自启动失败设置失败，原因: " + err.Error())
 					win.MessageBox(0, s2, s1, win.MB_OK|win.MB_ICONERROR)
-					fmt.Println("自启动设置失败: ", err.Error())
+					log.Errorf("自启动设置失败: %v", err.Error())
 				}
 				mAutoBoot.Uncheck()
 			} else {
 				err := getAutoStart().Enable()
 				if err != nil {
-					s1, _ := syscall.UTF16PtrFromString("SealDice 临时目录错误")
+					s1, _ := syscall.UTF16PtrFromString("SBDice 临时目录错误")
 					s2, _ := syscall.UTF16PtrFromString("自启动失败设置失败，原因: " + err.Error())
 					win.MessageBox(0, s2, s1, win.MB_OK|win.MB_ICONERROR)
-					fmt.Println("自启动设置失败: ", err.Error())
+					log.Errorf("自启动设置失败: %v", err.Error())
 				}
 				mAutoBoot.Check()
 			}
@@ -189,13 +191,14 @@ func httpServe(e *echo.Echo, dm *dice.DiceManager, hideUI bool) {
 	// runtime.LockOSThread()
 
 	go func() {
+		ver := dice.VERSION_MAIN + dice.VERSION_PRERELEASE
 		for {
 			time.Sleep(5 * time.Second)
 			if systrayQuited {
 				break
 			}
 			runtime.LockOSThread()
-			systray.SetTooltip("海豹TRPG骰点核心 #" + portStr)
+			systray.SetTooltip("海岛核心 " + ver + " #" + portStr)
 			runtime.UnlockOSThread()
 		}
 	}()
@@ -229,7 +232,7 @@ func httpServe(e *echo.Echo, dm *dice.DiceManager, hideUI bool) {
 		err := e.Start(dm.ServeAddress)
 
 		if err != nil {
-			s1, _ := syscall.UTF16PtrFromString("海豹TRPG骰点核心")
+			s1, _ := syscall.UTF16PtrFromString("海岛核心")
 			s2, _ := syscall.UTF16PtrFromString(fmt.Sprintf("端口 %s 已被占用，点“是”随机换一个端口，点“否”退出\n注意，此端口将被自动写入配置，后续可用启动参数改回", portStr))
 			ret := win.MessageBox(0, s2, s1, win.MB_YESNO|win.MB_ICONWARNING|win.MB_DEFBUTTON2)
 			if ret == win.IDYES {
@@ -237,12 +240,11 @@ func httpServe(e *echo.Echo, dm *dice.DiceManager, hideUI bool) {
 				dm.ServeAddress = fmt.Sprintf("0.0.0.0:%d", newPort)
 				continue
 			} else {
-				logger.Errorf("端口已被占用，即将自动退出: %s", dm.ServeAddress)
+				log.Errorf("端口已被占用，即将自动退出: %s", dm.ServeAddress)
 				os.Exit(0)
 			}
 		} else {
-			fmt.Println("如果浏览器没有自动打开，请手动访问:")
-			fmt.Printf("http://localhost:%s\n", portStr) // 默认:3211
+			log.Infof("如果浏览器没有自动打开，请手动访问:\nhttp://localhost:%s\n", portStr)
 			go showUI()
 			break
 		}
@@ -250,10 +252,10 @@ func httpServe(e *echo.Echo, dm *dice.DiceManager, hideUI bool) {
 }
 
 func tempDirWarn() {
-	s1, _ := syscall.UTF16PtrFromString("SealDice 临时目录错误")
-	s2, _ := syscall.UTF16PtrFromString("你正在临时文件目录运行海豹，最可能的情况是没有解压而是直接双击运行！\n请先完整解压后再进行运行操作！\n按确定后将自动退出")
+	s1, _ := syscall.UTF16PtrFromString("SBDice 临时目录错误")
+	s2, _ := syscall.UTF16PtrFromString("你正在临时文件目录运行，最可能的情况是没有解压而是直接双击运行！\n请先完整解压后再进行运行操作！\n按确定后将自动退出")
 	win.MessageBox(0, s2, s1, win.MB_OK|win.MB_ICONERROR)
-	fmt.Println("当前工作路径为临时目录，因此拒绝继续执行。")
+	log.Error("当前工作路径为临时目录，因此拒绝继续执行。")
 }
 
 func showMsgBox(title string, message string) {

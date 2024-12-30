@@ -4,7 +4,6 @@
 package main
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -20,6 +19,7 @@ import (
 
 	"sealdice-core/dice"
 	"sealdice-core/icon"
+	log "sealdice-core/utils/kratos"
 )
 
 var theDm *dice.DiceManager
@@ -41,11 +41,11 @@ func TestRunning() bool {
 }
 
 func tempDirWarn() {
-	fmt.Println("当前工作路径为临时目录，因此拒绝继续执行。")
+	log.Info("当前工作路径为临时目录，因此拒绝继续执行。")
 }
 
 func showMsgBox(title string, message string) {
-	fmt.Println(title, message)
+	log.Info(title, message)
 }
 
 func executeWin(name string, arg ...string) *exec.Cmd {
@@ -66,16 +66,16 @@ var systrayQuited bool = false
 
 func onReady() {
 	systray.SetIcon(icon.Data)
-	systray.SetTitle("海豹核心")
-	systray.SetTooltip("海豹TRPG骰点核心")
+	systray.SetTitle("海岛")
+	systray.SetTooltip("海岛核心")
 
 	mOpen := systray.AddMenuItem("打开界面", "开启WebUI")
 	mOpen.SetIcon(icon.Data)
-	mOpenExeDir := systray.AddMenuItem("打开海豹目录", "访达访问程序所在目录")
+	mOpenExeDir := systray.AddMenuItem("打开目录", "访达访问程序所在目录")
 	mQuit := systray.AddMenuItem("退出", "退出程序")
 
 	go func() {
-		_ = beeep.Notify("SBdice", "你是没骰子用了还是脑子不好使，用这坨屎？", "icon/icon.ico")
+		_ = beeep.Notify("SBDice", "我藏在托盘区域了，点我的小图标可以快速打开UI", "icon/icon.ico")
 	}()
 
 	for {
@@ -86,7 +86,7 @@ func onReady() {
 			_ = exec.Command(`open`, filepath.Dir(os.Args[0])).Start()
 		case <-mQuit.ClickedCh:
 			systrayQuited = true
-			cleanUpCreate(theDm)()
+			cleanupCreate(theDm)()
 			systray.Quit()
 			time.Sleep(3 * time.Second)
 			os.Exit(0)
@@ -108,7 +108,7 @@ func httpServe(e *echo.Echo, dm *dice.DiceManager, hideUI bool) {
 				break
 			}
 			runtime.LockOSThread()
-			systray.SetTooltip("海豹TRPG骰点核心 #" + portStr)
+			systray.SetTooltip("海岛核心 #" + portStr)
 			runtime.UnlockOSThread()
 		}
 	}()
@@ -121,17 +121,16 @@ func httpServe(e *echo.Echo, dm *dice.DiceManager, hideUI bool) {
 
 	ln, err := net.Listen("tcp", ":"+portStr)
 	if err != nil {
-		logger.Errorf("端口已被占用，即将自动退出: %s", dm.ServeAddress)
+		log.Errorf("端口已被占用，即将自动退出: %s", dm.ServeAddress)
 		runtime.Goexit()
 	}
 	_ = ln.Close()
 
 	// exec.Command(`cmd`, `/c`, `start`, fmt.Sprintf(`http://localhost:%s`, portStr)).Start()
-	fmt.Println("如果浏览器没有自动打开，请手动访问:")
-	fmt.Printf(`http://localhost:%s`, portStr) // 默认:3211
+	log.Infof("如果浏览器没有自动打开，请手动访问:\nhttp://localhost:%s", portStr)
 	err = e.Start(dm.ServeAddress)
 	if err != nil {
-		logger.Errorf("端口已被占用，即将自动退出: %s", dm.ServeAddress)
+		log.Errorf("端口已被占用，即将自动退出: %s", dm.ServeAddress)
 		return
 	}
 }
