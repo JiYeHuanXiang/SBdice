@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>COC Dice WebUI</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        #output { height: 400px; border: 1px solid #ccc; padding: 10px; overflow-y: auto; margin-bottom: 10px; }
+        .message { margin: 5px 0; padding: 5px; border-radius: 4px; }
+        .command { background: #e3f2fd; }
+        .result { background: #f0f4c3; }
+        .system { color: #666; }
+        input { width: 75%; padding: 8px; }
+        button { width: 20%; padding: 8px; }
+    </style>
+</head>
+<body>
+    <div id="output"></div>
+    <div>
+        <input type="text" id="input" placeholder="输入指令，例如 .coc 或 .r 3d6">
+        <button onclick="sendCommand()">发送</button>
+    </div>
+
+    <script>
+        const ws = new WebSocket('ws://' + window.location.host + '/ws');
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            appendMessage(data.message, data.type);
+        };
+
+        function sendCommand() {
+            const command = input.value.trim();
+            if (command) {
+                ws.send(command);
+                appendMessage(command, 'command');
+                input.value = '';
+            }
+        }
+
+        function appendMessage(text, type) {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        // 回车发送
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendCommand();
+        });
+    </script>
+</body>
+</html>
